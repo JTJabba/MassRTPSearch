@@ -154,7 +154,7 @@ class Program
             new Message("system", "You are a casino game expert. Respond with the RTP (Return to Player) " +
                 "percentage (100 = 100%) for the specified game in this exact format: 'RTP: <min>-<max>' or 'RTP: <fixed>' " +
                 "if there's only one value. Use the minimum RTP if multiple configurations exist. " +
-                "Make sure the response contains the RTP line unless you cannot find it. " +
+                "Make sure the response contains the RTP line unless you cannot find an exact match. " +
                 "Restate it at the end of your response in the EXACT format: 'RTP: <min>-<max>' or 'RTP: <fixed>'"),
             new Message("user", $"What is the RTP of {game}?")
         };
