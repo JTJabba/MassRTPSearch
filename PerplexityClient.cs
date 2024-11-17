@@ -1,10 +1,12 @@
 using System.Net.Http.Json;
 
+namespace MassRTPSearch;
+
 public record PerplexityRequest(
     string Model,
     IReadOnlyList<Message> Messages,
     int? MaxTokens = null,
-    double Temperature = 0.2,
+    double Temperature = 0.0,
     double TopP = 0.9,
     bool ReturnCitations = true,
     IReadOnlyList<string>? SearchDomainFilter = null,

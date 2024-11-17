@@ -1,9 +1,14 @@
 ﻿using JTJabba.EasyConfig;
 using JTJabba.EasyConfig.Loader;
 using System.Threading.Channels;
+using Microsoft.EntityFrameworkCore;
+
+namespace MassRTPSearch;
 
 class Program
 {
+    private static DatabaseContext _db = null!;
+
     private static readonly Channel<TimeSpan> _tokenBucket = Channel.CreateBounded<TimeSpan>(
         new BoundedChannelOptions(Config.MaxRequestsPerMin)
         {
@@ -14,9 +19,24 @@ class Program
     {
         ConfigLoader.Load();
 
-        if (args.Length != 2)
+        // Setup database
+        var dbOptions = new DbContextOptionsBuilder<DatabaseContext>()
+            .UseSqlite("Data Source=rtp_cache.db")
+            .Options;
+        _db = new DatabaseContext(dbOptions);
+        await _db.Database.EnsureCreatedAsync();
+
+        if (args.Length != 1)
         {
-            Console.WriteLine("Usage: MassRTPSearch <input-file> <api-key>");
+            Console.WriteLine("Usage: MassRTPSearch <input-file>");
+            Console.WriteLine("Make sure to set the PERPLEXITY_API_KEY environment variable");
+            return;
+        }
+
+        var apiKey = Environment.GetEnvironmentVariable("PERPLEXITY_API_KEY");
+        if (string.IsNullOrEmpty(apiKey))
+        {
+            Console.WriteLine("Error: PERPLEXITY_API_KEY environment variable is not set");
             return;
         }
 
@@ -24,7 +44,6 @@ class Program
         _ = FillTokenBucket();
 
         var inputFile = args[0];
-        var apiKey = args[1];
         var client = new PerplexityClient(apiKey);
         var results = new List<GameRtp>();
         var semaphore = new SemaphoreSlim(Config.MaxConcurrentRequests);
@@ -99,6 +118,18 @@ class Program
 
     static async Task<(decimal MinRtp, decimal MaxRtp)> GetGameRtp(PerplexityClient client, string game)
     {
+        // Check cache first
+        var cached = await _db.SearchResults
+            .FirstOrDefaultAsync(r => 
+                r.GameTitle == game && 
+                r.PerplexityModel == Config.Model);
+
+        if (cached != null)
+        {
+            Console.WriteLine($"Cache hit for {game}");
+            return (cached.ReportedMinRtp, cached.ReportedMaxRtp);
+        }
+
         var messages = new List<Message>
         {
             new Message("system", "You are a casino game expert. Respond with the RTP (Return to Player) " +
@@ -122,16 +153,30 @@ class Program
 
             Console.WriteLine($"API Response for {game}: {rtpResponse}");
 
-            // Find the RTP line using regex
-            var match = System.Text.RegularExpressions.Regex.Match(rtpResponse, @"RTP:\s*(\d+\.?\d*)-?(\d+\.?\d*)?");
-            if (!match.Success)
+            // Find the last RTP line using regex
+            var matches = System.Text.RegularExpressions.Regex.Matches(rtpResponse, @"RTP:\s*(\d+\.?\d*)-?(\d+\.?\d*)?");
+            if (matches.Count == 0)
                 return (0, 0);
 
+            // Use the last match
+            var lastMatch = matches[^1];
+            
             // If second group is empty, it's a fixed RTP
-            var minRtp = decimal.Parse(match.Groups[1].Value);
-            var maxRtp = match.Groups[2].Success 
-                ? decimal.Parse(match.Groups[2].Value) 
+            var minRtp = decimal.Parse(lastMatch.Groups[1].Value);
+            var maxRtp = lastMatch.Groups[2].Success 
+                ? decimal.Parse(lastMatch.Groups[2].Value) 
                 : minRtp;
+
+            // Save to cache
+            await _db.SearchResults.AddAsync(new SearchResultsModel
+            {
+                GameTitle = game,
+                SearchDate = DateTime.UtcNow,
+                PerplexityModel = Config.Model,
+                ReportedMinRtp = minRtp,
+                ReportedMaxRtp = maxRtp
+            });
+            await _db.SaveChangesAsync();
 
             return (minRtp, maxRtp);
         }
