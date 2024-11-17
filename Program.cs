@@ -75,7 +75,23 @@ class Program
         {
             await semaphore.WaitAsync();
             
-            // Wait for rate limit token
+            // Check cache before waiting for rate limit token
+            var cached = await _db.SearchResults
+                .FirstOrDefaultAsync(r => 
+                    r.GameTitle == game && 
+                    r.PerplexityModel == Config.Model);
+
+            if (cached != null)
+            {
+                Console.WriteLine($"Cache hit for {game}");
+                lock (results)
+                {
+                    results.Add(new GameRtp(game, cached.ReportedMinRtp, cached.ReportedMaxRtp));
+                }
+                return;
+            }
+            
+            // Only wait for token if we need to make an API call
             await _tokenBucket.Reader.ReadAsync();
             
             Console.WriteLine($"Processing: {game}");
