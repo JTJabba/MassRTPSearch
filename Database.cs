@@ -19,6 +19,14 @@ public class DatabaseContext : DbContext
             entity.Property(e => e.ReportedMaxRtp).HasPrecision(7, 4);
         });
     }
+
+    public static DatabaseContext CreateDbContext()
+    {
+        var dbOptions = new DbContextOptionsBuilder<DatabaseContext>()
+            .UseSqlite("Data Source=rtp_cache.db")
+            .Options;
+        return new DatabaseContext(dbOptions);
+    }
 }
 
 public class SearchResultsModel

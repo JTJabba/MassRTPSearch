@@ -7,8 +7,6 @@ namespace MassRTPSearch;
 
 class Program
 {
-    private static DatabaseContext _db = null!;
-
     private static readonly Channel<TimeSpan> _tokenBucket = Channel.CreateBounded<TimeSpan>(
         new BoundedChannelOptions(Config.MaxRequestsPerMin)
         {
@@ -19,12 +17,11 @@ class Program
     {
         ConfigLoader.Load();
 
-        // Setup database
-        var dbOptions = new DbContextOptionsBuilder<DatabaseContext>()
-            .UseSqlite("Data Source=rtp_cache.db")
-            .Options;
-        _db = new DatabaseContext(dbOptions);
-        await _db.Database.EnsureCreatedAsync();
+        // Initialize database once at startup
+        using (var db = DatabaseContext.CreateDbContext())
+        {
+            await db.Database.EnsureCreatedAsync();
+        }
 
         if (args.Length != 1)
         {
@@ -75,8 +72,11 @@ class Program
         {
             await semaphore.WaitAsync();
             
+            // Create new context for this operation
+            using var db = DatabaseContext.CreateDbContext();
+            
             // Check cache before waiting for rate limit token
-            var cached = await _db.SearchResults
+            var cached = await db.SearchResults
                 .FirstOrDefaultAsync(r => 
                     r.GameTitle == game && 
                     r.PerplexityModel == Config.Model);
@@ -134,8 +134,11 @@ class Program
 
     static async Task<(decimal MinRtp, decimal MaxRtp)> GetGameRtp(PerplexityClient client, string game)
     {
+        // Create new context for this operation
+        using var db = DatabaseContext.CreateDbContext();
+        
         // Check cache first
-        var cached = await _db.SearchResults
+        var cached = await db.SearchResults
             .FirstOrDefaultAsync(r => 
                 r.GameTitle == game && 
                 r.PerplexityModel == Config.Model);
@@ -184,7 +187,7 @@ class Program
                 : minRtp;
 
             // Save to cache
-            await _db.SearchResults.AddAsync(new SearchResultsModel
+            await db.SearchResults.AddAsync(new SearchResultsModel
             {
                 GameTitle = game,
                 SearchDate = DateTime.UtcNow,
@@ -192,7 +195,7 @@ class Program
                 ReportedMinRtp = minRtp,
                 ReportedMaxRtp = maxRtp
             });
-            await _db.SaveChangesAsync();
+            await db.SaveChangesAsync();
 
             return (minRtp, maxRtp);
         }
