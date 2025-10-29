@@ -57,7 +57,7 @@ class Program
 
         await Task.WhenAll(tasks);
 
-        var sortedResults = results.OrderByDescending(r => r.MinRtp);
+        var sortedResults = results.OrderByDescending(r => r.MaxRtp);
         await File.WriteAllLinesAsync("rtp_results.csv", 
             new[] { "Game,Min RTP %,Max RTP %" }
             .Concat(sortedResults.Select(r => 
